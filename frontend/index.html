@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Chatbot</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 RAG Chatbot</h1>
+            <p>Upload documents and ask questions about them</p>
+        </header>
+        
+        <div class="section">
+            <h2>📄 Upload PDF</h2>
+            <div class="upload-area">
+                <input type="file" id="fileInput" accept=".pdf" />
+                <button onclick="uploadFile()">Upload</button>
+            </div>
+            <div id="uploadStatus" class="status"></div>
+        </div>
+        
+        <div class="section">
+            <h2>💬 Ask a Question</h2>
+            <div class="chat-area">
+                <textarea id="queryInput" placeholder="Ask about your document..."></textarea>
+                <button onclick="chat()">Send</button>
+            </div>
+            <div id="chatResult" class="result" style="display:none;"></div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
