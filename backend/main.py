@@ -156,12 +156,13 @@ def search():
         data = request.json or {}
         query = data.get('query')
         top_k = data.get('top_k', 5)
-        
+        doc_id = data.get('doc_id')
+
         if not query:
             return jsonify({'error': 'No query provided'}), 400
-        
+
         logger.info(f"Searching for: {query}")
-        results = retriever.search(query, top_k=top_k)
+        results = retriever.search(query, top_k=top_k, doc_id=doc_id)
         logger.info(f"Found {len(results)} results")
         
         return jsonify({'results': results}), 200
@@ -182,14 +183,15 @@ def chat():
         
         data = request.json or {}
         query = data.get('query')
-        
+        doc_id = data.get('doc_id')
+
         if not query:
             return jsonify({'error': 'No query provided'}), 400
-        
-        logger.info(f"Chat query: {query}")
-        
-        # Retrieve relevant chunks
-        search_results = retriever.search(query, top_k=5)
+
+        logger.info(f"Chat query: {query} (doc_id={doc_id or 'all'})")
+
+        # Retrieve relevant chunks, scoped to the uploaded document if given
+        search_results = retriever.search(query, top_k=5, doc_id=doc_id)
         logger.info(f"Retrieved {len(search_results)} chunks")
         
         if not search_results:

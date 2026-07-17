@@ -1,5 +1,8 @@
 const API_URL = '/api';
 
+// Most recently uploaded document; chat is scoped to it when set
+let currentDocId = null;
+
 async function uploadFile() {
     const file = document.getElementById('fileInput').files[0];
     if (!file) {
@@ -21,7 +24,8 @@ async function uploadFile() {
         const data = await response.json();
         
         if (response.ok) {
-            statusDiv.innerHTML = `✅ <strong>Success!</strong> Uploaded: <strong>${data.num_chunks}</strong> chunks from "${data.filename}"`;
+            currentDocId = data.doc_id;
+            statusDiv.innerHTML = `✅ <strong>Success!</strong> Uploaded: <strong>${data.num_chunks}</strong> chunks from "${data.filename}" — questions will be answered from this document`;
         } else {
             statusDiv.innerHTML = `❌ Error: ${data.error}`;
         }
@@ -45,7 +49,7 @@ async function chat() {
         const response = await fetch(`${API_URL}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query })
+            body: JSON.stringify({ query, doc_id: currentDocId })
         });
         const data = await response.json();
         
