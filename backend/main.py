@@ -15,6 +15,7 @@ config.validate_config()
 # Set up frontend path
 frontend_dir = os.path.join(os.path.dirname(__file__), '..', 'frontend')
 app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB upload cap
 CORS(app)
 
 # Logging setup
@@ -67,6 +68,12 @@ def init_services():
             except Exception as e:
                 logger.error(f"❌ ChatService failed: {str(e)}")
                 raise
+
+
+@app.errorhandler(413)
+def handle_too_large(e):
+    """Reject uploads over the configured size cap with a JSON error"""
+    return jsonify({'error': 'File too large (max 10 MB)'}), 413
 
 
 @app.errorhandler(Exception)
