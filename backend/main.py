@@ -1,6 +1,9 @@
 """Flask app entry point - SIMPLIFIED VERSION WITH DEBUG OUTPUT"""
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 import os
 import logging
@@ -17,6 +20,20 @@ frontend_dir = os.path.join(os.path.dirname(__file__), '..', 'frontend')
 app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB upload cap
 CORS(app)
+
+# Railway sits one proxy hop in front of the app; trust X-Forwarded-* for one hop
+# so request.remote_addr is the real client IP (otherwise all visitors share the
+# proxy's IP and rate limits are effectively global).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+# Per-IP rate limiting (in-memory storage: counters are per gunicorn worker)
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=['200 per hour'],
+    storage_uri='memory://',
+    headers_enabled=True,  # sets Retry-After on 429 responses
+)
 
 # Logging setup
 logging.basicConfig(
@@ -76,6 +93,12 @@ def handle_too_large(e):
     return jsonify({'error': 'File too large (max 10 MB)'}), 413
 
 
+@app.errorhandler(429)
+def handle_rate_limit(e):
+    """Rate limit exceeded (Flask-Limiter adds the Retry-After header)"""
+    return jsonify({'error': 'Rate limit exceeded. Try again later.'}), 429
+
+
 @app.errorhandler(Exception)
 def handle_error(e):
     """Global error handler"""
@@ -88,18 +111,21 @@ def handle_error(e):
 
 
 @app.route('/', methods=['GET'])
+@limiter.exempt
 def serve_index():
     """Serve frontend index.html"""
     return send_from_directory(frontend_dir, 'index.html')
 
 
 @app.route('/<path:path>', methods=['GET'])
+@limiter.exempt
 def serve_static(path):
     """Serve static files"""
     return send_from_directory(frontend_dir, path)
 
 
 @app.route('/api/health', methods=['GET'])
+@limiter.exempt
 def health():
     """Health check endpoint"""
     logger.info("Health check requested")
@@ -107,6 +133,7 @@ def health():
 
 
 @app.route('/api/documents/upload', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_UPLOAD)
 def upload_document():
     """Upload and process a PDF document"""
     logger.info("Upload request received")
@@ -153,6 +180,7 @@ def upload_document():
 
 
 @app.route('/api/search', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_SEARCH)
 def search():
     """Search for relevant chunks"""
     logger.info("Search request received")
@@ -181,6 +209,7 @@ def search():
 
 
 @app.route('/api/chat', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_CHAT)
 def chat():
     """Chat endpoint with retrieval and LLM"""
     logger.info("Chat request received")
