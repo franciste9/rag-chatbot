@@ -1,126 +1,59 @@
-# RAG Chatbot: Building Production-Ready AI Systems
+# RAG Chatbot — Chat over PDFs with Grounded Answers
 
-A Retrieval-Augmented Generation (RAG) chatbot built with Python, LangChain, Claude, and Pinecone—demonstrating full-stack AI engineering from proof-of-concept to production design.
+A Retrieval-Augmented Generation (RAG) chatbot built with Python, LangChain, Claude, and Pinecone. Upload a PDF, ask questions, and get answers grounded in the document's actual content, with source citations for every response.
 
 ## Problem Statement
 
-Modern knowledge work requires instant access to information across large document collections. Traditional keyword search is brittle; full-text indexing misses semantic meaning. This project explores **how to build AI systems that answer questions by grounding responses in actual documents**—eliminating hallucinations while keeping latency acceptable.
+Modern knowledge work requires instant access to information across large document collections. Traditional keyword search is brittle; full-text indexing misses semantic meaning. This project explores **how to build AI systems that answer questions by grounding responses in actual documents** — reducing hallucinations while keeping latency acceptable.
 
 ## Features
 
-- 📄 **Upload & Ingest** PDFs at scale with semantic chunking
-- 🔍 **Semantic Search** across documents using vector similarity (not keyword matching)
-- 💬 **Grounded AI Responses** answers guaranteed to reference document content
-- 📚 **Full Traceability** source citations show exactly which chunk informed each answer
-- ⚡ **Fast Retrieval** sub-second search across thousands of documents
+- 📄 **Upload & Ingest** PDFs with recursive character chunking and overlap
+- 🔍 **Semantic Search** using vector similarity (not keyword matching)
+- 💬 **Grounded Responses** — Claude answers from retrieved context and is instructed to say "I don't have that information" rather than guess
+- 📚 **Source Citations** — every answer shows the chunks (and similarity scores) that informed it
+- 🎯 **Document Scoping** — chat is filtered to the uploaded document via Pinecone metadata, so answers don't bleed across uploads
 
 ## Architecture
 
 ```
 INGESTION PIPELINE:
-PDF → PyPDF Extract → LangChain Chunk (semantic + overlap) → OpenAI Embed → Pinecone Store
+PDF → pypdf Extract → LangChain Chunk (500 chars, 50 overlap) → OpenAI Embed → Pinecone Store
 
 QUERY PIPELINE:
-Query → OpenAI Embed → Pinecone Search (cosine) → Top-5 Chunks → Claude + Context → Grounded Answer
+Query → OpenAI Embed → Pinecone Search (cosine, doc_id filter) → Top-5 Chunks → Claude + Context → Grounded Answer
 ```
 
 ## Tech Stack & Rationale
 
 | Component | Technology | Why This Choice |
 |-----------|-----------|-----------------|
-| **Backend** | Flask + Python | Fast prototyping, rich ML ecosystem, proven in production |
-| **LLM** | Claude 3.5 Sonnet | Superior reasoning, excellent at instruction-following, handles long context windows |
-| **Embeddings** | OpenAI text-embedding-3-small | Cost-effective (~$0.02/1M tokens), high quality, proven at scale |
-| **Vector DB** | Pinecone | Managed service = no infrastructure overhead, simple API, built-in scaling |
-| **Orchestration** | LangChain | Abstracts API differences, standardizes prompts, handles retries |
-| **Frontend** | HTML/CSS/Vanilla JS | Zero dependencies, instant load, demonstrates full-stack thinking |
+| **Backend** | Flask + Python | Fast prototyping, rich ML ecosystem |
+| **LLM** | Claude (Sonnet) | Strong instruction-following; reliably admits "not in context" instead of fabricating |
+| **Embeddings** | OpenAI text-embedding-3-small | Cost-effective, high quality, 1536 dims |
+| **Vector DB** | Pinecone | Managed service = no infrastructure overhead; metadata filtering |
+| **Orchestration** | LangChain | Standardizes the LLM/embedding interfaces |
+| **Frontend** | HTML/CSS/Vanilla JS | Zero dependencies, served by the same Flask process |
 
 ### Key Design Decisions
 
-**1. Semantic Chunking (vs. Fixed-Size)**
-- **Problem:** Fixed 500-token chunks split sentences mid-thought, losing context
-- **Solution:** Recursive splitting on sentence/paragraph boundaries first, then by tokens
-- **Impact:** Improved retrieval relevance by ~15%, reduced hallucinations
+**1. Recursive character chunking (500 chars, 50 overlap)**
+Splits on paragraph/sentence boundaries first, falling back to smaller separators, so chunks tend to end at natural breaks. The 50-character overlap preserves references that straddle chunk boundaries. (Character-based, not token-based — simpler, and adequate at this scale.)
 
-**2. Overlap Strategy (50 tokens)**
-- **Problem:** Chunks at boundaries miss connecting information
-- **Solution:** 50-token overlap between chunks preserves cross-chunk references
-- **Result:** Better multi-document reasoning
+**2. Document scoping via metadata filter**
+All chunks live in one Pinecone index keyed `{doc_id}_{chunk_index}`. Queries pass a `doc_id` metadata filter so retrieval is scoped to the document the user uploaded — without it, answers could cite unrelated uploads.
 
-**3. Cosine Distance for Similarity**
-- **Problem:** Different similarity metrics (L2, dot product) behave differently
-- **Solution:** Cosine distance for normalized embeddings (matches how OpenAI embeddings are generated)
-- **Why:** Proven to work well for text; symmetric and interpretable (0-1 scale)
+**3. Claude for generation, OpenAI for embeddings**
+Deliberately polyglot: embeddings are a commodity priced per token (3-small is among the cheapest quality options), while generation quality and refusal behavior matter most for grounding — Claude is strong at answering only from provided context.
 
-**4. Claude over GPT-4**
-- **Reasoning Quality:** Claude excels at following complex instructions with long context
-- **Cost:** 30% cheaper than GPT-4 for same token volume
-- **Context Window:** 200K tokens allows ingesting entire documents at once
-- **RAG Fit:** Better at admitting "not in context" vs. fabricating
+**4. Pinecone over self-hosted pgvector**
+No infrastructure to manage for a portfolio-scale project; free tier is sufficient; metadata filtering and batched upserts (100/batch) come built in.
 
-**5. Pinecone over Self-Hosted Alternatives**
-- **Operational Burden:** pgvector (Postgres) requires managing infrastructure
-- **Scaling:** Pinecone handles auto-scaling; self-hosted requires manual tuning
-- **Simplicity:** Free tier sufficient for portfolio; upgrade path clear
+## Evaluation
 
-## Implementation Notes
+Honest status: **no automated evals yet.** Retrieval and answer quality are currently verified manually via the scripts in `tests/`, which exercise the real APIs end-to-end (upload → retrieve → answer) and print scores and answers for inspection.
 
-### Ingestion Pipeline
-```python
-# DocumentProcessor handles:
-1. PDF text extraction (handles corrupted PDFs gracefully)
-2. Semantic chunking with overlap
-3. Batch embedding generation (respects rate limits)
-4. Metadata preservation (page numbers, source tracking)
-```
-
-### Retrieval Pipeline
-```python
-# RetrieverService implements:
-1. Query embedding (cached for identical queries)
-2. Vector similarity search (top-k with diversity)
-3. Metadata filtering (future: by date, source, category)
-4. Score thresholding (reject low-confidence results)
-```
-
-### Chat Pipeline
-```python
-# ChatService handles:
-1. Context construction (retrieved chunks + metadata)
-2. Prompt engineering (system role + few-shot examples)
-3. Response generation with token counting
-4. Citation extraction (maps response back to source chunks)
-```
-
-## Evaluation & Quality Metrics
-
-### Retrieval Quality
-- **Precision@5:** ~85% (relevant chunks in top 5)
-- **MRR (Mean Reciprocal Rank):** 0.78 (average ranking of first relevant chunk)
-- **Methodology:** Manual evaluation on 20 test queries across 3 different PDFs
-
-### Answer Quality
-- **Groundedness:** 92% (responses cite document content)
-- **Latency:** 2-4s end-to-end (acceptable for knowledge work)
-- **Cost per Query:** ~$0.01 (embeddings + LLM)
-
-### What Didn't Work (Lessons Learned)
-1. **Fixed-size chunking:** Too many sentence fragments → lower quality
-2. **No overlap:** Lost context at chunk boundaries → incomplete answers
-3. **Dot product similarity:** Magnitude-dependent scores weren't interpretable
-4. **Too aggressive filtering:** Over-filtering low scores removed valid results
-
-## Performance & Cost
-
-| Metric | Value | Notes |
-|--------|-------|-------|
-| Embedding latency | ~100ms per chunk | OpenAI API, batched |
-| Search latency | <500ms | Pinecone + network |
-| LLM latency | 2-4s | Claude API, varies by token count |
-| **Total E2E** | **2.5-5s** | Acceptable for knowledge work |
-| Cost per PDF (100 pages) | ~$0.02 | Embeddings only |
-| Cost per query | ~$0.01 | LLM + embeddings |
-| Monthly cost (1000 queries) | ~$12 | Negligible at scale |
+Planned next (in CI): a golden question set per sample PDF with retrieval precision@k and answer-groundedness checks as a merge gate. Until those numbers exist, this README doesn't claim any.
 
 ## Quick Start
 
@@ -136,8 +69,8 @@ pip install -r requirements.txt
 
 ### 2. Get API Keys
 
-- **Anthropic:** https://console.anthropic.com/account/keys
-- **OpenAI:** https://platform.openai.com/account/api-keys
+- **Anthropic:** https://console.anthropic.com/
+- **OpenAI:** https://platform.openai.com/
 - **Pinecone:** https://app.pinecone.io (free tier available)
 
 ### 3. Configure
@@ -145,27 +78,28 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Edit .env with your API keys
-# Pinecone: Create index named "rag-index" (dimension: 1536, metric: cosine)
+# Pinecone: create an index named "rag-index" (dimension: 1536, metric: cosine)
 ```
 
 ### 4. Run
 
 ```bash
 python backend/main.py
-# Open: http://localhost:5000/frontend/index.html
+# Open: http://localhost:5001
 ```
 
 ## API Endpoints
 
 ### Upload Document
 ```bash
-curl -X POST -F "file=@paper.pdf" http://localhost:5000/api/documents/upload
+curl -X POST -F "file=@paper.pdf" http://localhost:5001/api/documents/upload
 ```
 
 **Response:**
 ```json
 {
   "filename": "paper.pdf",
+  "doc_id": "3f2a…",
   "num_chunks": 42,
   "text_length": 15234,
   "status": "processed"
@@ -175,28 +109,15 @@ curl -X POST -F "file=@paper.pdf" http://localhost:5000/api/documents/upload
 ### Search Documents
 ```bash
 curl -X POST -H "Content-Type: application/json" \
-  -d '{"query":"What is the main contribution?","top_k":5}' \
-  http://localhost:5000/api/search
+  -d '{"query":"What is the main contribution?","top_k":5,"doc_id":"3f2a…"}' \
+  http://localhost:5001/api/search
 ```
 
-**Response:**
-```json
-{
-  "results": [
-    {
-      "text": "This paper introduces a novel approach to...",
-      "score": 0.87,
-      "doc_id": "abc123"
-    }
-  ]
-}
-```
-
-### Chat with Documents
+### Chat with a Document
 ```bash
 curl -X POST -H "Content-Type: application/json" \
-  -d '{"query":"Summarize the methodology"}' \
-  http://localhost:5000/api/chat
+  -d '{"query":"Summarize the methodology","doc_id":"3f2a…"}' \
+  http://localhost:5001/api/chat
 ```
 
 **Response:**
@@ -205,163 +126,79 @@ curl -X POST -H "Content-Type: application/json" \
   "query": "Summarize the methodology",
   "answer": "The methodology uses...",
   "sources": [
-    {"text": "...", "score": 0.89},
-    {"text": "...", "score": 0.84}
+    {"text": "...", "score": 0.89, "doc_id": "3f2a…", "chunk_index": 4}
   ]
 }
 ```
 
-## Testing Guide
+`doc_id` is optional on both endpoints; omitting it searches across all uploaded documents.
 
-### Unit Tests
+## Testing
+
+`tests/` contains end-to-end scripts (not a pytest suite yet) that run against the real Anthropic/OpenAI/Pinecone APIs — running them costs real API credits:
+
 ```bash
-pytest backend/
+python tests/test_pinecone.py   # env → Pinecone init → PDF processing → store → search → quality check
+python tests/test_chat.py       # process a PDF → retrieve → call Claude → print answers
 ```
 
-### Integration Test
-```bash
-# 1. Start Flask
-python backend/main.py
+`tests/create_sample_pdf.py` and `tests/create_nba_pdf.py` generate the sample PDFs the scripts use. Converting these to a pytest suite with mocked clients is on the roadmap.
 
-# 2. Upload sample PDF
-curl -X POST -F "file=@sample.pdf" http://localhost:5000/api/documents/upload
+## Current Limitations
 
-# 3. Test search
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"query":"main topic"}' \
-  http://localhost:5000/api/search
+- **Single-turn:** no conversation history — each question stands alone
+- **No document management:** no deletion endpoint; the index accumulates uploads (distinguished by `doc_id`)
+- **No caching:** every query re-embeds; identical queries pay twice
+- **No automated evals or monitoring:** quality is verified manually (see Evaluation)
+- **No auth:** anyone with the URL can upload and query
 
-# 4. Test chat
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"query":"What is this about?"}' \
-  http://localhost:5000/api/chat
-```
+## Path to Production
 
-### Manual Testing Scenarios
-1. **Factual retrieval:** "What datasets were used?"
-2. **Semantic reasoning:** "How does this compare to X?"
-3. **Multi-document:** "Synthesize findings from all documents"
-4. **Edge cases:** Corrupted PDFs, very long documents, technical jargon
+**Phase 1 (this project):** working RAG pipeline — ingestion → scoped retrieval → grounded chat, deployed with gunicorn behind a 10 MB upload cap.
 
-## Production Considerations
+**Phase 2:** eval harness in CI (golden set, precision@k, groundedness), conversation history, document deletion + per-user namespaces, caching, structured observability.
 
-### Current Limitations
-- **Single-user:** No conversation history or multi-user support
-- **Local storage:** Document metadata not persisted
-- **No caching:** Every query generates new embeddings
-- **No monitoring:** No metrics tracking or alerting
-
-### Path to Production
-
-**Phase 1 (This Project):** Proof-of-concept RAG system
-- ✅ Basic ingestion → search → chat pipeline
-- ✅ Demonstrates core RAG concepts
-- ✅ Portfolio-quality code and documentation
-
-**Phase 2 (Spring Boot):** Production hardening
-- Add PostgreSQL for document metadata + conversation history
-- Implement Redis caching for frequent queries
-- Add comprehensive observability (logging, metrics, traces)
-- Deploy with Kubernetes or serverless (Lambda/Cloud Run)
-- Add authentication and multi-user support
-
-**Phase 3 (Advanced):** AI-specific optimizations
-- Fine-tune embeddings on domain-specific data
-- Implement reranking for multi-document search
-- Add human feedback loop for continuous improvement
-- Explore agent-based document analysis
-
-## Interview Narrative
-
-> *"I built this RAG system to understand how modern AI applications work end-to-end. Rather than just learning theory, I made architectural decisions: I chose Claude for reasoning quality, OpenAI embeddings for cost-effectiveness, and Pinecone to avoid infrastructure overhead. The system demonstrates full-stack thinking: I tested chunking strategies, measured retrieval quality, evaluated cost trade-offs, and documented production-readiness considerations. This isn't a toy—it's a real system I'd be confident deploying to production with minimal additional hardening."*
-
-**Why This Lands:**
-- Shows deliberate choices (not just framework hopping)
-- Demonstrates evaluation mindset (metrics, testing)
-- Signals production thinking (scaling, monitoring)
-- Proves you can ship end-to-end
-
-## What I Learned
-
-1. **Chunking matters more than embeddings:** Semantic boundaries >> fixed-size splits
-2. **Overlap is critical:** 50-token overlap prevented ~15% of missed context
-3. **Prompt engineering requires iteration:** First prompt was too verbose; refined through testing
-4. **Cost is a feature:** Every architectural decision has financial implications
-5. **Vector search isn't magic:** Quality depends on representation + retrieval strategy, not just the LLM
-6. **Observability saves hours:** Logging query latency per component revealed that search (not LLM) was bottleneck
+**Phase 3:** reranking, streaming responses, multi-document synthesis, feedback loop.
 
 ## Deployment
 
-### Local Docker
+Deployed via the included `Procfile` (gunicorn, 2 workers, binds to `$PORT`):
+
 ```bash
-docker build -t rag-chatbot .
-docker run -p 5000:5000 --env-file .env rag-chatbot
+# Railway: connect the repo, set the four env vars, deploy.
+# DEBUG must remain unset/False in production.
 ```
 
-### Cloud Options
-
-**Vercel (Frontend) + Railway/Render (Backend)**
-- Simplest option
-- Free tier sufficient for demo
-- ~$5-10/month for production
-
-**AWS Lambda (Serverless)**
-- Cost-effective for variable load
-- Need to optimize model loading
-- More complex setup
-
-**Kubernetes (Enterprise)**
-- Best for high throughput
-- Requires operational expertise
-- Overkill for current scale
+The same Flask process serves both the API and the frontend, so a single service is all that's needed.
 
 ## Repository Structure
 
 ```
 rag-chatbot/
 ├── backend/
-│   ├── main.py              # Flask server
+│   ├── main.py              # Flask app: routes, upload cap, error handling
 │   ├── ingestion.py         # PDF → chunks → embeddings
-│   ├── retrieval.py         # Vector search
-│   ├── chat.py              # LLM orchestration
-│   ├── config.py            # Settings
+│   ├── retrieval.py         # Pinecone store/search with doc_id filtering
+│   ├── chat.py              # Claude prompt construction + generation
+│   ├── config.py            # Env vars + startup validation
 │   └── utils.py             # Helpers
 ├── frontend/
-│   ├── index.html           # UI
-│   ├── style.css            # Styling
-│   └── script.js            # Client logic
-├── tests/
-│   ├── test_ingestion.py
-│   ├── test_retrieval.py
-│   └── test_chat.py
+│   ├── index.html
+│   ├── style.css
+│   └── script.js
+├── tests/                   # End-to-end scripts (real APIs, see Testing)
+├── samplepdf/               # Generated sample PDFs
+├── Procfile
 ├── .env.example
 ├── requirements.txt
-├── Dockerfile
-└── README.md (this file)
+└── README.md
 ```
-
-## Contributing
-
-This is a portfolio project, but feedback is welcome! 
-
-Ideas for contributions:
-- [ ] Support for more document types (Word, PowerPoint)
-- [ ] Streaming responses
-- [ ] Metadata filtering in search
-- [ ] Conversation history
-- [ ] Custom prompt templates
 
 ## License
 
 MIT
 
-## Questions or Feedback?
-
-Feel free to reach out or open an issue. This project demonstrates production-thinking; I'm happy to discuss architectural decisions.
-
 ---
 
-**Built with:** Python, Flask, LangChain, Claude, OpenAI, Pinecone  
-**Created:** June 2026  
-**Status:** Production-ready POC  
-**Effort:** ~40 hours of focused development
+**Built with:** Python, Flask, LangChain, Claude, OpenAI, Pinecone
+**Status:** Working proof-of-concept, deployed; eval harness in progress
