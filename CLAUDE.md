@@ -63,6 +63,8 @@ Three backend services, each a thin wrapper around one external dependency, inst
 
 `init_services()` lazily constructs all three service singletons behind a `threading.Lock` (`_init_lock`) to prevent duplicate construction under concurrent cold-start requests. Uploaded filenames are sanitized with `werkzeug.utils.secure_filename` before use in temp paths.
 
+Per-IP rate limiting via Flask-Limiter: upload `5 per hour`, chat `20 per hour`, search `30 per hour` (limit strings live in `backend/config.py` as `RATE_LIMIT_UPLOAD`/`RATE_LIMIT_CHAT`/`RATE_LIMIT_SEARCH`, overridable via same-named env vars), default `200 per hour` for anything else; `/api/health` and the static/frontend routes are `@limiter.exempt`. The WSGI app is wrapped in `ProxyFix` (`x_for=1`) so `request.remote_addr` is the real client IP behind Railway's single proxy hop. A 429 handler returns `{"error": ...}` JSON with `Retry-After` (via `headers_enabled=True`). Caveat: `storage_uri="memory://"` means counters are per gunicorn worker — with 2 workers, effective limits can be up to 2× (Redis is the production fix).
+
 `/api/search` and `/api/chat` accept an optional `doc_id`; when present, retrieval is scoped to that document via the Pinecone metadata filter. The frontend (`frontend/script.js`) stores the `doc_id` returned by the most recent upload in `currentDocId` and sends it with every chat request, so the UI always chats against the last-uploaded document. Omitting `doc_id` searches across all documents.
 
 There's no document-deletion endpoint and no per-document namespacing in Pinecone — all chunks from all uploaded documents live in one flat index, distinguished by `doc_id` chunk metadata (used for query-time filtering, not isolation).
