@@ -150,7 +150,7 @@ python tests/test_chat.py       # process a PDF → retrieve → call Claude →
 - **No document management:** no deletion endpoint; the index accumulates uploads (distinguished by `doc_id`)
 - **No caching:** every query re-embeds; identical queries pay twice
 - **No automated evals or monitoring:** quality is verified manually (see Evaluation)
-- **No auth:** anyone with the URL can upload and query
+- **No auth:** anyone with the URL can upload and query (per-IP rate limits cap the damage — see Production Considerations)
 
 ## Path to Production
 
@@ -170,6 +170,21 @@ Deployed via the included `Procfile` (gunicorn, 2 workers, binds to `$PORT`):
 ```
 
 The same Flask process serves both the API and the frontend, so a single service is all that's needed.
+
+### Production Considerations
+
+**Per-IP rate limiting** (Flask-Limiter) protects the billed endpoints from cost abuse:
+
+| Endpoint | Limit | Env override |
+|----------|-------|--------------|
+| `POST /api/documents/upload` | 5 per hour | `RATE_LIMIT_UPLOAD` |
+| `POST /api/chat` | 20 per hour | `RATE_LIMIT_CHAT` |
+| `POST /api/search` | 30 per hour | `RATE_LIMIT_SEARCH` |
+| everything else (except `/api/health` and the frontend, which are exempt) | 200 per hour | — |
+
+Requests over the limit get a JSON 429 with a `Retry-After` header. The app trusts one proxy hop (`ProxyFix`) so limits key on the real client IP behind Railway's proxy, not the proxy itself.
+
+**Known limitation:** limits use `memory://` storage, which is **per gunicorn worker**. With 2 workers, effective limits can be up to 2× the configured values. Acceptable for a demo; the production fix is shared Redis storage (`storage_uri="redis://…"`).
 
 ## Repository Structure
 
