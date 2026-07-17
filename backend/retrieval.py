@@ -41,15 +41,18 @@ class RetrieverService:
             logger.error(f"Storage failed: {str(e)}")
             raise
     
-    def search(self, query: str, top_k: int = 5) -> List[Dict]:
-        """Search for relevant chunks"""
+    def search(self, query: str, top_k: int = 5, doc_id: str = None) -> List[Dict]:
+        """Search for relevant chunks, optionally scoped to a single document"""
         try:
             query_embedding = self.embeddings.embed_query(query)
-            results = self.index.query(
-                vector=query_embedding,
-                top_k=top_k,
-                include_metadata=True
-            )
+            query_kwargs = {
+                'vector': query_embedding,
+                'top_k': top_k,
+                'include_metadata': True
+            }
+            if doc_id:
+                query_kwargs['filter'] = {'doc_id': {'$eq': doc_id}}
+            results = self.index.query(**query_kwargs)
             
             retrieved = [
                 {
