@@ -1,4 +1,5 @@
 const API_URL = '/api';
+const RATE_LIMIT_MESSAGE = "⏳ You've hit the demo's rate limit — try again in a bit";
 
 // Most recently uploaded document; chat is scoped to it when set
 let currentDocId = null;
@@ -26,6 +27,8 @@ async function uploadFile() {
         if (response.ok) {
             currentDocId = data.doc_id;
             statusDiv.innerHTML = `✅ <strong>Success!</strong> Uploaded: <strong>${data.num_chunks}</strong> chunks from "${data.filename}" — questions will be answered from this document`;
+        } else if (response.status === 429) {
+            statusDiv.innerHTML = RATE_LIMIT_MESSAGE;
         } else {
             statusDiv.innerHTML = `❌ Error: ${data.error}`;
         }
@@ -66,6 +69,8 @@ async function chat() {
             }
             
             resultDiv.innerHTML = html;
+        } else if (response.status === 429) {
+            resultDiv.innerHTML = RATE_LIMIT_MESSAGE;
         } else {
             resultDiv.innerHTML = `❌ Error: ${data.error}`;
         }
