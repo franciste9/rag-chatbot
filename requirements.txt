@@ -1,5 +1,6 @@
 Flask==3.0.0
 Flask-CORS==6.0.5
+Flask-Limiter==3.11.0
 python-dotenv==1.2.1
 langchain==0.3.30
 langchain-anthropic==0.3.22
