@@ -1,5 +1,7 @@
 # RAG Chatbot — Chat over PDFs with Grounded Answers
 
+**🔗 Live demo:** https://franciste-rag-chat.up.railway.app/
+
 A Retrieval-Augmented Generation (RAG) chatbot built with Python, LangChain, Claude, and Pinecone. Upload a PDF, ask questions, and get answers grounded in the document's actual content, with source citations for every response.
 
 ## Problem Statement
