@@ -36,8 +36,10 @@ limiter = Limiter(
 )
 
 # Logging setup
+# INFO, not DEBUG: DEBUG-level logging on third-party HTTP clients (openai,
+# anthropic, urllib3) can emit request headers/bodies, which include API keys.
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
@@ -107,7 +109,7 @@ def handle_error(e):
     print(f"\n{'='*60}")
     print(f"ERROR: {str(e)}")
     print(f"{'='*60}\n")
-    return jsonify({'error': str(e), 'type': type(e).__name__}), 500
+    return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/', methods=['GET'])
@@ -176,7 +178,7 @@ def upload_document():
     except Exception as e:
         logger.error(f"❌ Upload failed: {str(e)}")
         logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/search', methods=['POST'])
@@ -205,7 +207,7 @@ def search():
     except Exception as e:
         logger.error(f"❌ Search failed: {str(e)}")
         logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/chat', methods=['POST'])
@@ -254,7 +256,7 @@ def chat():
     except Exception as e:
         logger.error(f"❌ Chat failed: {str(e)}")
         logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 if __name__ == '__main__':

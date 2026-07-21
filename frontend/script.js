@@ -26,7 +26,7 @@ async function uploadFile() {
         
         if (response.ok) {
             currentDocId = data.doc_id;
-            statusDiv.innerHTML = `✅ <strong>Success!</strong> Uploaded: <strong>${data.num_chunks}</strong> chunks from "${data.filename}" — questions will be answered from this document`;
+            statusDiv.innerHTML = `✅ <strong>Success!</strong> Uploaded: <strong>${data.num_chunks}</strong> chunks from "${escapeHtml(data.filename)}" — questions will be answered from this document`;
         } else if (response.status === 429) {
             statusDiv.innerHTML = RATE_LIMIT_MESSAGE;
         } else {
